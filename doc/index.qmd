@@ -1,0 +1,127 @@
+---
+title: "Analysing UNICEF Organisation Data"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading the data
+
+We first loaded all three datasets. The structure of the datasets are printed below.
+
+```{r, warning=FALSE, message=FALSE}
+library(tidyverse)
+
+# loading the data
+unicef_data1 <- read.csv('unicef_indicator_1.csv')
+unicef_data2 <- read.csv('unicef_indicator_2.csv')
+unicef_meta_data <- read.csv('unicef_metadata.csv')
+
+# structure of the datasets
+glimpse(unicef_data1)
+glimpse(unicef_data2)
+glimpse(unicef_meta_data)
+```
+
+We selected the relevant variables in UNICEF indicator 1 dataset which are country, indicator, observed value and sex. The indicator 1 dataset is then combined with UNICEF metadata using left join.
+
+```{r}
+# choosing relevant variables from indicator 1
+unicef_data1 <- unicef_data1 %>%
+  rename(year = time_period) %>%
+  select(country, indicator, year, obs_value, sex)
+
+# combining UNICEF indicator 1 and UNICEF meta data
+combined_data <- unicef_meta_data %>%
+  left_join(unicef_data1, by = c('country', 'year'))
+```
+
+Similarly the relevant variables indicator, year, sex, and observed values are selected from the UNICEF indicator 2 variable. The variable names are changed to avoid the conflict with UNICEF 1 indicator variables. The indicator 2 data is merged with previous combined data and `combined_full` data objected is printed.
+
+```{r, warning=FALSE, message=FALSE}
+# choosing relevant variables from indicator 2
+unicef_data2 <- unicef_data2 %>%
+  rename(indicator2 = indicator, year = time_period, sex.2 = sex, obs_value.2 = obs_value) %>%
+  select(country, indicator2, year, sex.2, obs_value.2)
+
+# combined full data
+combined_full <- combined_data %>%
+  left_join(unicef_data2, by = c('country', 'year'))
+
+glimpse(combined_full)
+```
+
+## Visualizations
+
+### A World Map chart
+
+We have created a World Map chart below. The plot maps the population of all the countries in year 1960. From the plot it is evident that the China has the highest population following India.
+
+```{r, warning=FALSE, message=FALSE}
+library(rworldmap)
+
+data(countryExData)
+
+# Merge your dataset with the country-level data
+merged_data <- joinCountryData2Map(combined_full, joinCode = "ISO3", nameJoinColumn = "alpha_3_code")
+
+library(sf)
+merged_data <- st_as_sf(merged_data)
+
+# Plotting the world map by population
+ggplot() +
+  geom_sf(data = merged_data, aes(fill = Population..total)) +
+  scale_fill_gradient(low = "lightblue", high = "darkblue", name = "Population") +
+  theme_void()+
+  labs(title = 'Mapping World Population by each Country in 1960')
+```
+
+### A bar chart
+
+We created a barplot to observe the percentage of children under age 5 who had Acute respiratory infection symptoms in India in year 2021. The barplot reveals the Male children had higher percentage of acute respiratory infection symptoms as compare to female sex.
+
+```{r}
+combined_full %>%
+  filter(year == 2021, country == 'India', sex.2 != 'Total') %>%
+  select(obs_value.2, year, country, sex.2) %>%
+  na.omit() %>%
+  ggplot(aes(x = sex.2, y = obs_value.2/100, fill = sex.2))+
+  geom_bar(stat = 'identity')+
+  labs(x = 'Sex', y = 'acute respiratory infection symptoms rate', fill = 'Sex', 
+       title = 'Acute respiratory infection symptoms in children in India in 2021', 
+       subtitle = 'Careseeking for ARI - percentage of children (under age 5) with acute respiratory \ninfection symptoms whom advice or treatment was sought from a health facility')+
+  theme_light()+
+  scale_y_continuous(labels = scales::percent_format(), breaks = seq(0, 0.6, 0.1))
+```
+
+### A scatterplot with a linear regression line
+
+To create a scatterplot with a regression line, we used GDP per cap of India and life expectancy at birth (total years). The x-axis is GPD per cap US is on log scale and the y-axis is representing the life expectancy at birth total years. The relationship looks slightly non-linear with an increasing trend. As the GDP is increasing, the life expectancy is increasing but becoming constant at the end.
+
+```{r, warning=FALSE, message=FALSE}
+combined_full %>%
+  filter(country == 'India') %>%
+  ggplot(aes(x = log(GDP.per.capita..constant.2015.US..), y = Life.expectancy.at.birth..total..years.))+
+  geom_point()+
+  geom_smooth(method = 'lm', se = FALSE)+
+  labs(x = 'GDP per cap US (log scale)', y = 'Life Expectancy at Birth (total Years)', 
+       subtitle = 'Relationship between log GDP per cap of India with Life Expectency at \nBirth (Total Years')+
+  theme_light()
+```
+
+### A time-series chart.
+
+To create a time series plot, we have visualized and compare the total population of India and China. The plot reveals that China has higher total population over the decades and from 2000, it's population started to decrease. The total population of India increases with steady increasing trend and it becomes almost equal to China population in year 2021.
+
+```{r}
+combined_full %>%
+  filter(country %in% c('India', 'China')) %>% 
+  ggplot(aes(x = year, y = Population..total, group = country, color = country))+
+  geom_line()+
+  scale_y_continuous(labels = function(x) paste0(x / 1e6, "M"))+
+  labs(x = 'Year', y = 'Total Population (Million)', 
+       title = 'Time Series Plot of Total Population of India and China (1960-2021')+
+  theme_light()
+```
